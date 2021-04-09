@@ -162,12 +162,12 @@ fn (mut a App) save_snapshot() {
 	// a.debug_dump()
 }
 
-fn (mut a App) load_snapshot() {
+fn (mut a App) load_snapshot()? {
 	if a.snapshots.len > 0 {
 		snap := a.snapshots.pop()
 		a.snap.undo_states = snap.undo_states
 		a.restore_state(snap.state)
-		save_scores(a.scores)
+		save_scores(a.scores)?
 		a.save_snapshot() // limit snapshots depth to 1
 	}
 }
@@ -200,16 +200,16 @@ fn (mut a App) save_score() {
 	}
 }
 
-fn save_scores(scores []Score) {
+fn save_scores(scores []Score)? {
 	if scores.len > 0 {
-		os.rm(scores_file) // TODO : understand why create doesn't reset contents
+		os.rm(scores_file)? // TODO : understand why create doesn't reset contents
 		mut f := os.create(scores_file) or {
 			panic("can't create scores file")
 		}
-		f.writeln('$version')
-		f.writeln('$scores.len')
+		f.writeln('$version')?
+		f.writeln('$scores.len')?
 		for s in scores {
-			f.writeln('$s.level $s.pushes $s.moves $s.time_s')
+			f.writeln('$s.level $s.pushes $s.moves $s.time_s')?
 		}
 	}
 }
@@ -242,11 +242,11 @@ fn load_scores() []Score {
 	return ret
 }
 
-fn (mut a App) pop_undo() {
+fn (mut a App) pop_undo()? {
 	if a.snap.undo_states.len > 0 {
 		state := a.snap.undo_states.pop()
 		a.restore_state(state)
-		save_scores(a.scores)
+		save_scores(a.scores)?
 		a.snap.state.undos++
 		// a.debug_dump()
 	}
@@ -397,9 +397,9 @@ fn (mut a App) set_level(level int) bool {
 	}
 }
 
-fn (mut a App) quit() {
+fn (mut a App) quit()? {
 	if a.status != .menu {
-		if a.status == .play {
+		if a.status == .play || a.status == .win {
 			a.status = .menu
 		}
 		return
@@ -408,7 +408,7 @@ fn (mut a App) quit() {
 		x: 0
 		y: 0
 	})
-	save_scores(a.scores)
+	save_scores(a.scores)?
 	exit(0)
 }
 
@@ -423,7 +423,7 @@ fn (mut a App) can_move(x int, y int) bool {
 }
 
 // Try to move to x+dx:y+dy and possibly also push from x+dx:y+dy to x+2dx:y+2dy
-fn (mut a App) try_move(dx int, dy int) bool {
+fn (mut a App) try_move(dx int, dy int)? bool {
 	mut do_it := false
 	x := a.snap.state.px + dx
 	y := a.snap.state.py + dy
@@ -444,7 +444,7 @@ fn (mut a App) try_move(dx int, dy int) bool {
 				if a.snap.state.stored == a.levels[a.level].crates {
 					a.status = .win
 					a.save_score()
-					save_scores(a.scores)
+					save_scores(a.scores)?
 				}
 			}
 		}
@@ -463,36 +463,36 @@ fn (mut a App) try_move(dx int, dy int) bool {
 	return do_it
 }
 
-fn (mut a App) event(e &ui.Event) {
+fn (mut a App) event(e &ui.Event)? {
 	match e.typ {
 		.key_down {
 			if e.code == .escape {
-				a.quit()
+				a.quit()?
 			}
 		}
 		else {}
 	}
 	match a.status {
 		.menu { a.handle_event_menu(e) }
-		.win { a.handle_event_win(e) }
-		.play { a.handle_event_play(e) }
+		.win { a.handle_event_win(e)? }
+		.play { a.handle_event_play(e)? }
 		.pause { a.handle_event_pause(e) }
 	}
 }
 
-fn (mut a App) handle_event_play(e &ui.Event) {
+fn (mut a App) handle_event_play(e &ui.Event)? {
 	match e.typ {
 		.key_down { match e.code {
 				.space { a.status = .pause }
 				.r { a.set_level(a.level) }
-				.u { a.pop_undo() }
+				.u { a.pop_undo()? }
 				.s { a.save_snapshot() }
-				.l { a.load_snapshot() }
+				.l { a.load_snapshot()? }
 				.w { a.status = .win }
-				.left { a.try_move(-1, 0) }
-				.right { a.try_move(1, 0) }
-				.up { a.try_move(0, -1) }
-				.down { a.try_move(0, 1) }
+				.left { a.try_move(-1, 0)? }
+				.right { a.try_move(1, 0)? }
+				.up { a.try_move(0, -1)? }
+				.down { a.try_move(0, 1)? }
 				else {}
 			} }
 		else {}
@@ -519,7 +519,7 @@ fn (mut a App) handle_event_menu(e &ui.Event) {
 	}
 }
 
-fn (mut a App) handle_event_win(e &ui.Event) {
+fn (mut a App) handle_event_win(e &ui.Event)? {
 	match e.typ {
 		.key_down { match e.code {
 				.enter {
@@ -527,7 +527,7 @@ fn (mut a App) handle_event_win(e &ui.Event) {
 						a.status = .play
 					} else {
 						eprintln('Game over.')
-						a.quit()
+						a.quit()?
 					}
 				}
 				else {}
@@ -560,12 +560,15 @@ fn (mut a App) draw_menu() {
 	//
 	a.tui.set_color(white)
 	a.tui.bold()
-	a.tui.draw_text(cx - 7, cy + 1, 'START LEVEL ${a.level + 1}')
+	a.tui.draw_text(cx - 7, cy + 1, 'Enter to start ${a.level + 1}')
+	a.tui.draw_text(cx - 5, cy + 2, 'ESC to Quit')
 	a.tui.reset()
 	//
-	a.tui.draw_text(cx - 9, y075 + 1, 'Press ENTER to start')
-	a.tui.reset()
-	a.tui.draw_text(cx - 5, y075 + 3, 'ESC to Quit')
+	a.tui.draw_text(cx - 9, y075 + 1, 'SPACE : Pause game')
+	a.tui.draw_text(cx - 9, y075 + 2, 'R : Reset level')
+	a.tui.draw_text(cx - 9, y075 + 3, 'U : Undo last move')
+	a.tui.draw_text(cx - 9, y075 + 4, 'S : Save Snapshot')
+	a.tui.draw_text(cx - 9, y075 + 5, 'L : Load Snapshot')
 	a.tui.reset()
 }
 
@@ -596,7 +599,8 @@ fn (mut a App) draw_game() {
 					e_stored
 				}
 				empty {
-					if a.snap.state.px == i && a.snap.state.py == j { e_player } else { e_empty }
+					s:=if a.snap.state.px == i && a.snap.state.py == j { e_player } else { e_empty }
+					s
 				}
 				else {
 					e_empty
@@ -639,9 +643,9 @@ fn fail(error string) {
 	eprintln(error)
 }
 
-fn event(e &ui.Event, x voidptr) {
+fn event(e &ui.Event, x voidptr)? {
 	mut app := &App(x)
-	app.event(e)
+	app.event(e)?
 }
 
 // main
@@ -657,4 +661,4 @@ app.tui = ui.init({
 	hide_cursor: true
 	frame_rate: 60
 })
-app.tui.run()
+app.tui.run()?
